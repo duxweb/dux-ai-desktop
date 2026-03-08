@@ -1,0 +1,16 @@
+{
+  "settings": {
+    "label": "settings",
+    "title": "设置",
+    "width": 560,
+    "height": 380,
+    "resizable": false
+  },
+  "about": {
+    "label": "about",
+    "title": "关于 Dux AI",
+    "width": 420,
+    "height": 320,
+    "resizable": false
+  }
+}
