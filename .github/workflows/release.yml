@@ -69,6 +69,40 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Sync app version from tag
+        shell: bash
+        run: |
+          export VERSION="${RELEASE_TAG#v}"
+          echo "Using release version: ${VERSION}"
+          node <<'EOF'
+          const fs = require('fs')
+          const path = require('path')
+
+          const version = process.env.VERSION
+          if (!version) {
+            throw new Error('VERSION is required')
+          }
+
+          const root = process.cwd()
+
+          const packageJsonPath = path.join(root, 'package.json')
+          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+          packageJson.version = version
+          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`)
+
+          const tauriConfigPath = path.join(root, 'src-tauri', 'tauri.conf.json')
+          const tauriConfig = JSON.parse(fs.readFileSync(tauriConfigPath, 'utf8'))
+          tauriConfig.version = version
+          fs.writeFileSync(tauriConfigPath, `${JSON.stringify(tauriConfig, null, 2)}\n`)
+
+          const cargoTomlPath = path.join(root, 'src-tauri', 'Cargo.toml')
+          const cargoToml = fs.readFileSync(cargoTomlPath, 'utf8').replace(
+            /^version = ".*"$/m,
+            `version = "${version}"`
+          )
+          fs.writeFileSync(cargoTomlPath, cargoToml)
+          EOF
+
       - name: Build and upload release assets
         uses: tauri-apps/tauri-action@v0.6.1
         env:
