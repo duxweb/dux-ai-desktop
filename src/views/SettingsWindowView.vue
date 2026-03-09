@@ -41,7 +41,7 @@ onBeforeUnmount(() => {
   <ChildWindowShell title="连接设置" description="保存你的 Dux AI 服务地址和 API Token。">
     <div>
       <div class="grid gap-4">
-        <label class="text-xs font-medium text-[color:var(--app-text-muted)]">服务器地址</label>
+        <label class="text-sm font-medium text-[color:var(--app-text-muted)]">服务器地址</label>
         <input
           :value="settings.form.serverUrl"
           class="field-base rounded-2xl px-4 py-3 text-sm"
@@ -50,7 +50,7 @@ onBeforeUnmount(() => {
           @contextmenu="showEditableContextMenu($event)"
         >
 
-        <label class="text-xs font-medium text-[color:var(--app-text-muted)]">Token</label>
+        <label class="text-sm font-medium text-[color:var(--app-text-muted)]">Token</label>
         <input
           :value="settings.form.token"
           type="password"

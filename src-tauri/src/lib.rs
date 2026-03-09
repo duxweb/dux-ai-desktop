@@ -225,8 +225,7 @@ fn configure_macos_window(window: &WebviewWindow, clear_title: bool, movable_by_
 }
 
 #[cfg(target_os = "windows")]
-fn configure_windows_window(window: &WebviewWindow) -> tauri::Result<()> {
-    window.set_decorations(false)?;
+fn apply_windows_mica(window: &WebviewWindow) -> tauri::Result<()> {
     window.set_effects(
         EffectsBuilder::new()
             .effect(Effect::Mica)
@@ -243,7 +242,7 @@ fn configure_child_window(window: &WebviewWindow) -> tauri::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        configure_windows_window(window)?;
+        apply_windows_mica(window)?;
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
@@ -273,8 +272,6 @@ async fn open_app_window(app: AppHandle, request: OpenAppWindowRequest) -> Resul
         .parent(&parent)
         .map_err(|error| error.to_string())?
         .center()
-        .transparent(true)
-        .decorations(false)
         .shadow(true)
         .visible(true)
         .focused(true)
@@ -283,6 +280,16 @@ async fn open_app_window(app: AppHandle, request: OpenAppWindowRequest) -> Resul
         .closable(true)
         .resizable(definition.resizable)
         .skip_taskbar(true);
+
+    #[cfg(target_os = "windows")]
+    {
+        builder = builder.transparent(false).decorations(true);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        builder = builder.transparent(true).decorations(false);
+    }
 
     builder = builder
         .title(&definition.title)
@@ -541,7 +548,8 @@ pub fn run() {
             }
             #[cfg(target_os = "windows")]
             if let Some(window) = app.get_webview_window("main") {
-                configure_windows_window(&window)?;
+                window.set_decorations(false)?;
+                apply_windows_mica(&window)?;
             }
             Ok(())
         })
