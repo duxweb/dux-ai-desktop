@@ -19,7 +19,7 @@ const panelClass = computed(() => isMacLike
       <div v-if="!isMacLike" class="absolute right-3 top-3 z-20 no-drag">
         <button
           type="button"
-          class="window-win-button window-win-close no-drag flex h-[38px] w-[46px] items-center justify-center rounded-none"
+          class="window-win-button window-win-close no-drag flex size-[32px] items-center justify-center rounded-full"
           aria-label="关闭窗口"
           @mousedown.stop.prevent
           @click="closeWindow"
