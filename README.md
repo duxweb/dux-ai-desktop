@@ -8,64 +8,82 @@
   用桌面端方式连接 Dux AI 服务，统一处理会话、附件上传、流式回复与多窗口设置体验。
 </p>
 
+<p align="center">
+  <a href="https://github.com/duxweb/dux-ai-desktop" target="_blank">GitHub</a> |
+  <a href="https://github.com/duxweb/dux-ai-desktop/releases" target="_blank">Releases</a> |
+  <a href="https://github.com/duxweb/dux-ai" target="_blank">Dux AI 服务端</a>
+</p>
+
+<p align="center">
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2.x-blue.svg" />
+  <img alt="Vue" src="https://img.shields.io/badge/Vue-3-green.svg" />
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-green.svg" />
+</p>
+
 ## 项目定位
 
 Dux AI Desktop 不是一个独立的 AI 后端，而是 Dux AI 的桌面聊天客户端。
 
-它主要负责这几件事：
+你可以把它理解成：
 
-- 连接 Dux AI 服务端
-- 管理智能体与会话列表
-- 发送文本、图片、文档、视频附件
-- 在桌面端展示流式回复与消息记录
-- 提供设置、关于等原生窗口体验
+- 一个连接 Dux AI 服务端的桌面对话入口
+- 一个支持智能体切换和会话管理的原生桌面客户端
+- 一个支持图片、文档、视频附件发送的多媒体聊天工具
+- 一个用于设置、关于、多窗口管理的轻量桌面壳层
 
-当前项目技术栈为：
+它建立在 `Vue 3 + Tauri 2` 之上，所以天然具备：
 
-- `Vue 3`
-- `Vite`
-- `Pinia`
-- `Tauri 2`
-- `Rust`
+- 跨平台桌面应用能力
+- 原生窗口控制能力
+- 本地配置持久化能力
+- 与 Dux AI 服务端直接对接的能力
+
+## 核心特性
+
+- 智能体、会话、消息统一在一个桌面端里管理
+- 支持文本、图片、文档、视频附件发送
+- 支持流式消息回复
+- 支持设置、关于等独立子窗口
+- 支持 macOS 与 Windows 桌面打包发布
+- 版本号可随 GitHub Release Tag 自动同步到构建产物
 
 ## 适合什么场景
 
 - 想给 Dux AI 配一个轻量桌面聊天入口
 - 想在 macOS 或 Windows 上直接使用 Dux AI 会话能力
 - 想通过桌面端完成附件上传、消息追问和多窗口设置
+- 想给团队内部提供一个独立桌面 AI 客户端
 
-## 本地开发
+## 下载与安装
 
-### 环境要求
+推荐直接从 GitHub Releases 下载对应系统的安装包：
 
-- Node.js 22+
-- pnpm 10+
-- Rust 工具链
-- Tauri 2 桌面构建环境
+- 仓库：`https://github.com/duxweb/dux-ai-desktop`
+- Releases：`https://github.com/duxweb/dux-ai-desktop/releases`
 
-### 安装依赖
+当前发布目标：
 
-```bash
-pnpm install
+- macOS ARM64
+- macOS x64
+- Windows x64
+
+### macOS 提示“已损坏，无法打开”怎么办
+
+如果 macOS 下载后提示：
+
+```text
+“Dux AI”已损坏，无法打开。你应该将它移到废纸篓。
 ```
 
-### 启动前端开发服务
+这通常不是文件真的损坏，而是系统对未签名或未公证应用的隔离拦截。
+
+可以在终端执行：
 
 ```bash
-pnpm dev
+sudo xattr -rd com.apple.quarantine /Applications/Dux\ AI.app
 ```
 
-### 启动 Tauri 桌面开发
-
-```bash
-pnpm tauri dev
-```
-
-### 构建前端资源
-
-```bash
-pnpm build
-```
+执行后再重新打开应用即可。
 
 ## 连接 Dux AI 服务端
 
@@ -102,7 +120,40 @@ http://127.0.0.1:8000
 - 如果测试连接成功但没有智能体，通常说明服务端当前还没有可用模型或智能体配置
 - 如果桌面端无法连接，请优先确认服务端接口是否可从当前机器访问
 
-## 桌面发布
+## 本地开发
+
+### 环境要求
+
+- Node.js 22+
+- pnpm 10+
+- Rust 工具链
+- Tauri 2 桌面构建环境
+
+### 安装依赖
+
+```bash
+pnpm install
+```
+
+### 启动前端开发服务
+
+```bash
+pnpm dev
+```
+
+### 启动 Tauri 桌面开发
+
+```bash
+pnpm tauri dev
+```
+
+### 构建前端资源
+
+```bash
+pnpm build
+```
+
+## 自动发布
 
 GitHub Actions 工作流文件：
 
@@ -117,11 +168,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-推送后会自动创建一个 GitHub Draft Release，并上传以下桌面安装包：
-
-- macOS ARM64
-- macOS x64
-- Windows x64
+推送后会自动创建一个 GitHub Draft Release，并上传桌面安装包。
 
 ### 手动触发发布
 
@@ -131,10 +178,20 @@ git push origin v0.1.0
 v0.1.0
 ```
 
-### 当前打包目标
+### 版本号同步规则
 
-- macOS：`dmg`
-- Windows：`nsis`
+发布工作流会在构建前自动把当前 Tag 版本同步到：
+
+- `package.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/tauri.conf.json`
+
+例如：
+
+- Tag：`v1.2.3`
+- 实际打包版本：`1.2.3`
+
+关于窗口里显示的版本号也会跟随当前应用实际版本。
 
 ## 开发说明
 
@@ -142,11 +199,15 @@ v0.1.0
 - Tauri CLI 入口命令为 `pnpm tauri`
 - 自动发布使用 `tauri-apps/tauri-action`
 - Windows 安装包需要在真实 Windows 环境或 GitHub Actions Windows runner 中构建
+- macOS 图标依赖 `src-tauri/icons/icon.icns`
+- Windows 图标依赖 `src-tauri/icons/icon.ico`
 
 ## 相关项目
 
 - Dux AI：`https://github.com/duxweb/dux-ai`
+- Dux AI 文档：`https://github.com/duxweb/dux-ai-docs`
 - Dux PHP Admin：`https://github.com/duxweb/dux-php-admin`
+- DVHA：`https://dvha.docs.dux.plus/`
 
 ## 开源协议
 
