@@ -93,13 +93,17 @@ function onKeydown(event: KeyboardEvent) {
 }
 
 function attachmentStatusText(file: any) {
-  if (file.status === 'uploading') {
-    return '上传中'
+  if (file.status === 'error') {
+    return file.error || '上传失败'
   }
-  if (file.status === 'uploaded') {
-    return '已就绪'
+  if (file.kind !== 'document' || !file.remote) {
+    return ''
   }
-  return file.error || '上传失败'
+  if (file.remote.parse_mode !== 'parsed') {
+    return ''
+  }
+
+  return Number(file.remote.parsed_parts_count) > 0 ? '解析成功' : '解析为空'
 }
 
 function attachmentIcon(kind?: string) {
@@ -226,7 +230,7 @@ watch(() => props.activeSession?.id, () => {
 
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium text-app">{{ file.name }}</div>
-              <div class="mt-1 truncate text-xs text-app-muted">{{ attachmentStatusText(file) }}</div>
+              <div v-if="attachmentStatusText(file)" class="mt-1 truncate text-xs text-app-muted">{{ attachmentStatusText(file) }}</div>
             </div>
 
             <button

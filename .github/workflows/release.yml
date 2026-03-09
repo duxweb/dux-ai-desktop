@@ -1,0 +1,86 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Release tag to publish, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            runner: macos-15
+            rust_target: aarch64-apple-darwin
+            tauri_args: --target aarch64-apple-darwin --bundles dmg
+          - name: macOS x64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            tauri_args: --target x86_64-apple-darwin --bundles dmg
+          - name: Windows x64
+            runner: windows-2025
+            rust_target: x86_64-pc-windows-msvc
+            tauri_args: --target x86_64-pc-windows-msvc --bundles nsis
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.31.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: Dux AI ${{ env.RELEASE_TAG }}
+          releaseBody: |
+            Automated desktop release for ${{ env.RELEASE_TAG }}.
+          releaseDraft: true
+          prerelease: false
+          uploadWorkflowArtifacts: true
+          releaseAssetNamePattern: '[name]_[version]_[platform]_[arch][setup][ext]'
+          tauriScript: pnpm tauri
+          args: ${{ matrix.tauri_args }}

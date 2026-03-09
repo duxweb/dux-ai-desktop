@@ -331,12 +331,13 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendMessage(text: string) {
+    const queuedAttachments = [...pendingAttachments.value]
     const input: ChatDraftInput = {
       text,
-      attachments: pendingAttachments.value,
+      attachments: queuedAttachments,
     }
     const trimmed = input.text.trim()
-    const uploaded = pendingAttachments.value
+    const uploaded = queuedAttachments
       .filter(item => item.remote)
       .map(item => item.remote as FileUploadItem)
 
@@ -350,6 +351,7 @@ export const useChatStore = defineStore('chat', () => {
     sending.value = true
     lastError.value = ''
     cancelCurrentStream()
+    pendingAttachments.value = []
 
     const sessionId = await ensureSessionForSend()
     const userMessage = buildUserMessage(trimmed, uploaded)
@@ -413,11 +415,12 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
 
-      clearPendingAttachments()
+      queuedAttachments.forEach(revokeAttachmentPreview)
       await refreshSessions()
       await refreshMessages(sessionId)
     }
     catch (error) {
+      pendingAttachments.value = queuedAttachments
       const errorMessage = safeErrorMessage(error, '发送消息失败')
       const current = messagesBySession.value[sessionId] || []
       const last = current[current.length - 1]
