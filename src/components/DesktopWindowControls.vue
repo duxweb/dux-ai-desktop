@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { IconMinus, IconSquare, IconX } from '@tabler/icons-vue'
 import { computed, ref } from 'vue'
 import { closeWindow, isMacLike, minimizeWindow, toggleMaximizeWindow } from '../lib/window'
 
@@ -26,7 +27,8 @@ async function handleClose() {
 
 <template>
   <div
-    class="no-drag flex items-center gap-2"
+    class="no-drag flex items-center"
+    :class="isMacLike ? 'gap-2' : 'gap-0 self-stretch'"
     @mouseenter="hovering = true"
     @mouseleave="hovering = false"
   >
@@ -42,9 +44,15 @@ async function handleClose() {
       </button>
     </template>
     <template v-else>
-      <button class="window-win-button" :class="compact ? 'h-7 w-9 rounded-lg' : ''" aria-label="最小化窗口" @click="handleMinimize">—</button>
-      <button class="window-win-button" :class="compact ? 'h-7 w-9 rounded-lg' : ''" aria-label="最大化窗口" @click="handleToggleMaximize">▢</button>
-      <button class="window-win-button border-red-400/20 text-red-200 hover:bg-red-500/20" :class="compact ? 'h-7 w-9 rounded-lg' : ''" aria-label="关闭窗口" @click="handleClose">✕</button>
+      <button class="window-win-button" :class="compact ? 'h-full w-[46px]' : ''" aria-label="最小化窗口" @click.stop="handleMinimize">
+        <IconMinus class="h-3.5 w-3.5" stroke="2" />
+      </button>
+      <button class="window-win-button" :class="compact ? 'h-full w-[46px]' : ''" aria-label="最大化窗口" @click.stop="handleToggleMaximize">
+        <IconSquare class="h-3.5 w-3.5" stroke="1.8" />
+      </button>
+      <button class="window-win-button window-win-close" :class="compact ? 'h-full w-[46px]' : ''" aria-label="关闭窗口" @click.stop="handleClose">
+        <IconX class="h-3.5 w-3.5" stroke="2" />
+      </button>
     </template>
   </div>
 </template>

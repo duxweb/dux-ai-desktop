@@ -243,15 +243,20 @@
   }
 
   .window-win-button {
-    @apply flex h-8 w-10 items-center justify-center rounded-[12px] text-sm transition;
-    border: 1px solid var(--app-border);
-    background: color-mix(in srgb, var(--app-text) 4%, transparent);
+    @apply flex h-8 w-[46px] items-center justify-center text-sm transition;
+    border: 0;
+    background: transparent;
     color: var(--app-text-muted);
   }
 
   .window-win-button:hover {
     color: var(--app-text);
     background: color-mix(in srgb, var(--app-text) 8%, transparent);
+  }
+
+  .window-win-close:hover {
+    color: white;
+    background: #e81123;
   }
 
 

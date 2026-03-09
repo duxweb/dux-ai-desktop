@@ -154,13 +154,13 @@ onMounted(async () => {
 
       <header
         v-else
-        class="relative flex h-[38px] shrink-0 items-center justify-between px-3"
-        data-tauri-drag-region
+        class="relative flex h-[38px] shrink-0 items-center pl-3"
       >
-        <div class="min-w-0" data-tauri-drag-region>
+        <div class="min-w-0 shrink-0 opacity-0 pointer-events-none select-none">
           <div class="truncate text-sm font-semibold text-[color:var(--app-text)]">Dux AI</div>
         </div>
-        <div class="flex items-center gap-1 no-drag">
+        <div class="min-w-0 flex-1 self-stretch" data-tauri-drag-region />
+        <div class="flex h-full items-stretch no-drag">
           <button class="btn-ghost flex h-8 w-8 items-center justify-center" aria-label="打开关于" @click="openAboutWindow">
             <IconInfoCircle class="h-5 w-5" stroke="1.9" />
           </button>

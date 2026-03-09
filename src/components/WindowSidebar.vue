@@ -94,7 +94,7 @@ async function openSessionContextMenu(event: MouseEvent, session: any) {
             <IconPlus class="h-4 w-4" stroke="2.2" />
           </div>
           <div>
-            <div class="text-sm font-semibold  text-app">新建会话</div>
+            <div class="text-sm font-semibold text-app">新建会话</div>
             <div class="mt-0.5 text-xs text-app-muted">开始一段新的对话</div>
           </div>
         </div>
