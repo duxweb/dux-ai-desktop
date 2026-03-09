@@ -235,14 +235,14 @@ fn apply_windows_mica(window: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
-fn configure_child_window(window: &WebviewWindow) -> tauri::Result<()> {
+fn configure_child_window(_window: &WebviewWindow) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        configure_macos_window(window, false, false)?;
+        configure_macos_window(_window, false, false)?;
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
-        window.set_decorations(false)?;
+        _window.set_decorations(false)?;
     }
     Ok(())
 }
@@ -373,7 +373,11 @@ fn minimize_app_window(window: WebviewWindow) -> Result<(), String> {
 
 #[tauri::command]
 fn toggle_maximize_app_window(window: WebviewWindow) -> Result<(), String> {
-    window.toggle_maximize().map_err(|error| error.to_string())
+    if window.is_maximized().map_err(|error| error.to_string())? {
+        window.unmaximize().map_err(|error| error.to_string())
+    } else {
+        window.maximize().map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]
