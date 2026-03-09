@@ -367,6 +367,26 @@ async fn download_remote_asset(request: DownloadRemoteAssetRequest) -> Result<()
 }
 
 #[tauri::command]
+fn minimize_app_window(window: WebviewWindow) -> Result<(), String> {
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn toggle_maximize_app_window(window: WebviewWindow) -> Result<(), String> {
+    window.toggle_maximize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn close_app_window(window: WebviewWindow) -> Result<(), String> {
+    window.close().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn is_app_window_maximized(window: WebviewWindow) -> Result<bool, String> {
+    window.is_maximized().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 async fn api_request(request: ApiRequest) -> Result<Value, String> {
     let client = reqwest::Client::new();
     let method = request
@@ -553,6 +573,10 @@ pub fn run() {
             open_app_window,
             open_external,
             download_remote_asset,
+            minimize_app_window,
+            toggle_maximize_app_window,
+            close_app_window,
+            is_app_window_maximized,
             api_request,
             upload_file,
             start_chat_stream,

@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { isTauriRuntime } from './runtime'
 
 function isMacPlatform() {
@@ -7,32 +8,32 @@ function isMacPlatform() {
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent)
 }
 
-async function currentWindow() {
-  if (!isTauriRuntime()) {
-    return null
-  }
-  const { getCurrentWindow } = await import('@tauri-apps/api/window')
-  return getCurrentWindow()
-}
-
 export async function minimizeWindow() {
-  const window = await currentWindow()
-  await window?.minimize()
+  if (!isTauriRuntime()) {
+    return
+  }
+  await invoke('minimize_app_window')
 }
 
 export async function toggleMaximizeWindow() {
-  const window = await currentWindow()
-  await window?.toggleMaximize()
+  if (!isTauriRuntime()) {
+    return
+  }
+  await invoke('toggle_maximize_app_window')
 }
 
 export async function closeWindow() {
-  const window = await currentWindow()
-  await window?.close()
+  if (!isTauriRuntime()) {
+    return
+  }
+  await invoke('close_app_window')
 }
 
 export async function isWindowMaximized() {
-  const window = await currentWindow()
-  return window ? window.isMaximized() : false
+  if (!isTauriRuntime()) {
+    return false
+  }
+  return await invoke<boolean>('is_app_window_maximized')
 }
 
 export const isMacLike = isMacPlatform()
