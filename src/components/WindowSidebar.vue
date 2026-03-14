@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { IconPlus } from '@tabler/icons-vue'
+import { IconLoader2, IconPlus } from '@tabler/icons-vue'
 import dayjs from 'dayjs'
 import { computed, ref } from 'vue'
 import { showNativeContextMenu } from '../lib/native-menu'
@@ -12,6 +12,8 @@ const props = defineProps<{
   activeAgentCode: string
   loading: boolean
   configured: boolean
+  creating: boolean
+  deletingSessionIds: number[]
 }>()
 
 const emit = defineEmits<{
@@ -23,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const sortedSessions = computed(() => {
-  return [...props.sessions].sort((a, b) => String(b.last_message_at || b.updated_at || '').localeCompare(String(a.last_message_at || a.updated_at || '')))
+  return [...props.sessions].sort((a, b) => String(b.last_message_at || b.updated_at || b.created_at || '').localeCompare(String(a.last_message_at || a.updated_at || a.created_at || '')))
 })
 
 const activeAgent = computed(() => props.agents.find(item => item.id === props.activeAgentCode) || null)
@@ -46,6 +48,10 @@ function chooseAgent(code: string) {
 function agentInitial(agent: any) {
   const value = String(agent?.name || agent?.id || '?').trim()
   return value.slice(0, 1).toUpperCase()
+}
+
+function isDeleting(sessionId: number) {
+  return props.deletingSessionIds.includes(sessionId)
 }
 
 async function openSessionContextMenu(event: MouseEvent, session: any) {
@@ -87,16 +93,17 @@ async function openSessionContextMenu(event: MouseEvent, session: any) {
       <button
         class="no-drag flex w-full items-center justify-between rounded-[10px] px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-55"
         style="border: 1px solid color-mix(in srgb, var(--app-accent) 28%, var(--app-border)); background: color-mix(in srgb, var(--app-accent) 10%, transparent); color: var(--app-text);"
-        :disabled="!configured || loading"
+        :disabled="!configured || loading || creating"
         @click="emit('createSession')"
       >
         <div class="flex min-w-0 items-center gap-3">
           <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent)] text-white">
-            <IconPlus class="h-4 w-4" stroke="2.2" />
+            <IconLoader2 v-if="creating" class="h-4 w-4 animate-spin" stroke="2.2" />
+            <IconPlus v-else class="h-4 w-4" stroke="2.2" />
           </div>
           <div>
-            <div class="text-sm font-semibold text-app">新建会话</div>
-            <div class="mt-0.5 text-xs text-app-muted">开始一段新的对话</div>
+            <div class="text-sm font-semibold text-app">{{ creating ? '创建中…' : '新建会话' }}</div>
+            <div class="mt-0.5 text-xs text-app-muted">{{ creating ? '正在准备新的会话' : '开始一段新的对话' }}</div>
           </div>
         </div>
       </button>
@@ -117,7 +124,8 @@ async function openSessionContextMenu(event: MouseEvent, session: any) {
             v-for="session in sortedSessions"
             :key="session.id"
             class="session-card no-drag flex w-full items-center gap-3 rounded-[10px] px-4 py-3 text-left"
-            :class="activeSessionId === session.id ? 'session-card-active' : ''"
+            :class="[activeSessionId === session.id ? 'session-card-active' : '', isDeleting(session.id) ? 'opacity-45' : '']"
+            :disabled="isDeleting(session.id)"
             data-context-menu-controlled="true"
             @click="emit('selectSession', session.id)"
             @contextmenu.prevent.stop="openSessionContextMenu($event, session)"
@@ -125,7 +133,7 @@ async function openSessionContextMenu(event: MouseEvent, session: any) {
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm font-medium text-app">{{ session.title || '未命名会话' }}</div>
             </div>
-            <div class="shrink-0 text-xs text-app-muted">{{ formatTime(session.last_message_at || session.updated_at) }}</div>
+            <div class="shrink-0 text-xs text-app-muted">{{ formatTime(session.last_message_at || session.updated_at || session.created_at) }}</div>
           </button>
         </div>
       </div>
@@ -144,20 +152,21 @@ async function openSessionContextMenu(event: MouseEvent, session: any) {
             :class="activeAgentCode === agent.id ? 'session-card-active' : ''"
             @click="chooseAgent(agent.id)"
           >
-            <div class="flex min-w-0 flex-1 items-center gap-3">
+            <div class="flex min-w-0 items-center gap-3">
               <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color:color-mix(in_srgb,var(--app-accent)_14%,transparent)] text-sm font-semibold text-[color:var(--app-accent)]">
                 {{ agentInitial(agent) }}
               </div>
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm font-medium text-app">{{ agent.name || agent.id }}</div>
+              <div class="min-w-0">
+                <div class="truncate text-sm font-medium text-app">{{ agent.name }}</div>
                 <div class="mt-1 truncate text-xs text-app-muted">{{ agent.description || agent.id }}</div>
               </div>
             </div>
+            <div v-if="activeAgentCode === agent.id" class="text-xs font-medium text-[color:var(--app-accent)]">当前</div>
           </button>
         </div>
 
-        <div class="mt-5 flex justify-end">
-          <button class="dialog-btn-muted" @click="showAgentPicker = false">取消</button>
+        <div class="mt-5 flex justify-end gap-3">
+          <button class="dialog-btn-muted" @click="showAgentPicker = false">关闭</button>
         </div>
       </div>
     </div>

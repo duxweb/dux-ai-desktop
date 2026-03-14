@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { IconInfoCircle, IconSettings } from '@tabler/icons-vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import DesktopWindowControls from '../components/DesktopWindowControls.vue'
 import WindowSidebar from '../components/WindowSidebar.vue'
@@ -18,6 +18,7 @@ const ready = computed(() => settings.ready)
 const configured = computed(() => settings.configured)
 const booting = computed(() => chat.booting)
 const activeSession = computed(() => chat.activeSession)
+const sessionError = computed(() => chat.error)
 const rootClass = computed(() => 'p-0')
 const shellClass = computed(() => isMacLike
   ? 'glass-shell mac-native-shell rounded-none border-0 shadow-none'
@@ -26,8 +27,17 @@ const shellClass = computed(() => isMacLike
 const renameOpen = ref(false)
 const deleteOpen = ref(false)
 const renameValue = ref('')
-const actionBusy = ref(false)
+const renameTargetId = ref<number | null>(null)
+const deleteTargetId = ref<number | null>(null)
 const refreshBusy = ref(false)
+let refreshTimer: number | null = null
+
+function selectedSession(sessionId?: number | null) {
+  if (!sessionId) {
+    return null
+  }
+  return chat.sessions.find(item => item.id === sessionId) || null
+}
 
 async function bootstrap(force = false) {
   if (!settings.configured) {
@@ -45,72 +55,92 @@ async function openAboutWindow() {
   await openChildWindow('about')
 }
 
-async function refreshCurrentConversation() {
-  if (refreshBusy.value || chat.sending) {
+async function refreshCurrentConversation(silent = false) {
+  if (refreshBusy.value || chat.sending || chat.creatingSession || !!sessionError.value) {
     return
   }
   refreshBusy.value = true
   try {
-    await chat.refreshCurrentSession()
-    await new Promise(resolve => setTimeout(resolve, 320))
-    pushToast('已刷新最新消息', 'success')
+    await chat.refreshCurrentSession({ silent })
+    if (!silent) {
+      pushToast('已刷新最新消息', 'success')
+    }
   }
   finally {
     refreshBusy.value = false
   }
 }
 
-async function ensureSessionFocused(sessionId?: number | null) {
-  if (!sessionId || sessionId === activeSession.value?.id) {
-    return
-  }
-  await chat.selectSession(sessionId)
-}
-
 async function openRenameDialog(sessionId?: number | null) {
-  await ensureSessionFocused(sessionId)
-  if (!activeSession.value) {
+  const session = selectedSession(sessionId)
+  if (!session) {
     return
   }
-  renameValue.value = String(activeSession.value.title || '')
+  renameTargetId.value = session.id
+  renameValue.value = String(session.title || '')
   renameOpen.value = true
 }
 
 async function openDeleteDialog(sessionId?: number | null) {
-  await ensureSessionFocused(sessionId)
-  if (!activeSession.value) {
+  const session = selectedSession(sessionId)
+  if (!session) {
     return
   }
+  deleteTargetId.value = session.id
   deleteOpen.value = true
 }
 
 async function confirmRename() {
   const title = renameValue.value.trim()
-  if (!activeSession.value || !title) {
+  const sessionId = renameTargetId.value
+  if (!sessionId || !title) {
     return
   }
-  actionBusy.value = true
+  renameOpen.value = false
+  renameTargetId.value = null
   try {
-    await chat.renameSession({ id: activeSession.value.id, title })
-    renameOpen.value = false
+    await chat.renameSession({ id: sessionId, title })
   }
-  finally {
-    actionBusy.value = false
+  catch {
+    pushToast(chat.error || '重命名失败', 'error')
   }
 }
 
 async function confirmDelete() {
-  if (!activeSession.value) {
+  const sessionId = deleteTargetId.value
+  if (!sessionId) {
     return
   }
-  actionBusy.value = true
+  deleteOpen.value = false
+  deleteTargetId.value = null
   try {
-    await chat.deleteSession(activeSession.value.id)
-    deleteOpen.value = false
+    await chat.deleteSession(sessionId)
   }
-  finally {
-    actionBusy.value = false
+  catch {
+    pushToast(chat.error || '删除失败', 'error')
   }
+}
+
+async function handleCreateSession() {
+  try {
+    await chat.createSession()
+  }
+  catch {
+    pushToast(chat.error || '创建会话失败', 'error')
+  }
+}
+
+function restartRefreshTimer() {
+  if (refreshTimer !== null) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (!settings.configured || !chat.activeSessionId) {
+    return
+  }
+  refreshTimer = window.setInterval(() => {
+    void refreshCurrentConversation(true)
+  }, 30000)
 }
 
 function handleRootContextMenu(event: MouseEvent) {
@@ -128,9 +158,24 @@ function handleRootContextMenu(event: MouseEvent) {
   event.preventDefault()
 }
 
+watch(() => chat.activeSessionId, (sessionId) => {
+  restartRefreshTimer()
+  if (sessionId) {
+    void chat.refreshCurrentSession({ silent: true })
+  }
+})
+
 onMounted(async () => {
   await settings.init()
   await bootstrap()
+  restartRefreshTimer()
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer !== null) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
 })
 </script>
 
@@ -180,7 +225,9 @@ onMounted(async () => {
             :active-agent-code="chat.activeAgentCode"
             :loading="booting"
             :configured="configured"
-            @create-session="chat.createSession"
+            :creating="chat.creatingSession"
+            :deleting-session-ids="chat.deletingSessionIds"
+            @create-session="handleCreateSession"
             @select-session="chat.selectSession"
             @select-agent="chat.selectAgent"
             @request-rename-session="openRenameDialog"
@@ -207,10 +254,10 @@ onMounted(async () => {
               @attach="chat.pickAndUploadFile"
               @remove-attachment="chat.removePendingAttachment"
               @retry-bootstrap="bootstrap(true)"
-              @request-rename="openRenameDialog()"
-              @request-delete="openDeleteDialog()"
+              @request-rename="openRenameDialog(chat.activeSessionId)"
+              @request-delete="openDeleteDialog(chat.activeSessionId)"
               @request-retry="chat.retryLastMessage"
-              @request-refresh="refreshCurrentConversation"
+              @request-refresh="refreshCurrentConversation(false)"
             />
           </div>
         </div>
@@ -230,7 +277,7 @@ onMounted(async () => {
         >
         <div class="mt-5 flex justify-end gap-3">
           <button class="dialog-btn-muted" @click="renameOpen = false">取消</button>
-          <button class="dialog-btn-accent disabled:opacity-55" :disabled="!renameValue.trim() || actionBusy" @click="confirmRename">确认</button>
+          <button class="dialog-btn-accent disabled:opacity-55" :disabled="!renameValue.trim()" @click="confirmRename">确认</button>
         </div>
       </div>
     </div>
@@ -238,10 +285,10 @@ onMounted(async () => {
     <div v-if="deleteOpen" class="no-drag absolute inset-0 z-40 grid place-items-center bg-black/28 backdrop-blur-sm">
       <div class="dialog-panel w-full max-w-md rounded-[20px] px-5 py-5">
         <div class="text-app text-lg font-semibold">删除会话</div>
-        <p class="text-app-muted mt-2 text-sm">确认删除“{{ activeSession?.title || '未命名会话' }}”吗？删除后无法恢复。</p>
+        <p class="text-app-muted mt-2 text-sm">确认删除“{{ selectedSession(deleteTargetId)?.title || '未命名会话' }}”吗？删除后无法恢复。</p>
         <div class="mt-5 flex justify-end gap-3">
           <button class="dialog-btn-muted" @click="deleteOpen = false">取消</button>
-          <button class="dialog-btn-danger disabled:opacity-55" :disabled="actionBusy" @click="confirmDelete">确认删除</button>
+          <button class="dialog-btn-danger" @click="confirmDelete">确认删除</button>
         </div>
       </div>
     </div>

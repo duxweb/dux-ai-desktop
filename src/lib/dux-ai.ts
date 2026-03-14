@@ -37,6 +37,11 @@ export interface StreamChatInput {
   signal?: AbortSignal
 }
 
+export interface ListMessagesOptions {
+  limit?: number
+  afterId?: number
+}
+
 interface NativeStreamDataPayload {
   streamId: string
   data: string
@@ -94,8 +99,11 @@ export class DuxAiClient {
     })
   }
 
-  async listMessages(sessionId: number, limit = 200): Promise<ChatMessage[]> {
-    const query = new URLSearchParams({ limit: String(limit) })
+  async listMessages(sessionId: number, options: ListMessagesOptions = {}): Promise<ChatMessage[]> {
+    const query = new URLSearchParams({ limit: String(options.limit ?? 200) })
+    if (options.afterId && options.afterId > 0) {
+      query.set('after_id', String(options.afterId))
+    }
     const data = await this.request<ApiEnvelope<ChatMessage[]>>(`/agent/v1/sessions/${sessionId}/messages?${query.toString()}`)
     return Array.isArray(data.data)
       ? data.data.map(item => normalizeMessage(item))
@@ -261,19 +269,20 @@ export class DuxAiClient {
       },
       body: JSON.stringify({
         model: input.model,
-        session_id: input.sessionId ?? undefined,
         stream: true,
+        session_id: input.sessionId ?? undefined,
         messages: input.messages,
       }),
       signal: input.signal,
     })
 
     if (!response.ok || !response.body) {
-      throw await this.toApiError(response)
+      const payload = await this.parseResponse(response)
+      throw new DuxAiApiError(payload?.error?.message || payload?.message || '流式响应失败', response.status, payload)
     }
 
     const reader = response.body.getReader()
-    const decoder = new TextDecoder()
+    const decoder = new TextDecoder('utf-8')
     let buffer = ''
 
     try {
@@ -282,301 +291,250 @@ export class DuxAiClient {
         if (done) {
           break
         }
-
         buffer += decoder.decode(value, { stream: true })
-        const blocks = buffer.split('\n\n')
-        buffer = blocks.pop() ?? ''
-
-        for (const block of blocks) {
-          const lines = block
-            .split(/\r?\n/)
-            .filter(line => line.startsWith('data:'))
-            .map(line => line.replace(/^data:\s?/, '').trim())
-            .filter(Boolean)
-
-          for (const line of lines) {
-            for (const item of this.consumeSseDataLine(line)) {
-              yield item
-            }
-          }
-        }
-      }
-
-      if (buffer.trim()) {
-        const lines = buffer
-          .split(/\r?\n/)
-          .filter(line => line.startsWith('data:'))
-          .map(line => line.replace(/^data:\s?/, '').trim())
-          .filter(Boolean)
-        for (const line of lines) {
-          for (const item of this.consumeSseDataLine(line)) {
-            yield item
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() || ''
+        for (const part of parts) {
+          for (const event of this.consumeSseDataLine(part)) {
+            yield event
           }
         }
       }
     }
-    catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return
-      }
-      yield {
-        type: 'error',
-        error: error instanceof Error ? error : new Error(safeErrorMessage(error)),
-      }
+    finally {
+      reader.releaseLock()
     }
   }
 
-  private *consumeSseDataLine(dataLine: string): Generator<ChatStreamEvent, void, undefined> {
-    if (dataLine === '[DONE]') {
-      yield { type: 'done' }
-      return
-    }
-
-    let chunk: ChatCompletionChunk
-    try {
-      chunk = JSON.parse(dataLine) as ChatCompletionChunk
-    }
-    catch {
-      return
-    }
-
-    if (chunk.error) {
-      yield {
-        type: 'error',
-        error: new DuxAiApiError(chunk.error.message || '流式响应失败', 500, chunk.error),
+  private consumeSseDataLine(block: string): ChatStreamEvent[] {
+    const events: ChatStreamEvent[] = []
+    for (const line of block.split('\n')) {
+      if (!line.startsWith('data:')) {
+        continue
       }
-      return
-    }
-
-    if (typeof chunk.session_id === 'number' && chunk.session_id > 0) {
-      yield {
-        type: 'session',
-        sessionId: chunk.session_id,
+      const raw = line.slice(5).trim()
+      if (!raw || raw === '[DONE]') {
+        events.push({ type: 'done' })
+        continue
       }
-    }
-
-    const choice = chunk.choices?.[0]
-    const delta = choice?.delta
-    const text = typeof delta?.content === 'string' ? delta.content : undefined
-    const parts = Array.isArray(delta?.content) ? delta.content as ChatContentPart[] : undefined
-
-    if (text || (parts && parts.length)) {
-      yield {
-        type: 'delta',
-        text,
-        parts,
-        chunk,
+      let payload: ChatCompletionChunk
+      try {
+        payload = JSON.parse(raw)
       }
-    }
+      catch {
+        continue
+      }
 
-    if (choice?.finish_reason) {
-      yield {
-        type: 'done',
-        finishReason: choice.finish_reason,
-        chunk,
+      if (payload.error?.message) {
+        events.push({ type: 'error', error: new DuxAiApiError(payload.error.message, 0, payload) })
+        continue
+      }
+
+      if (payload.session_id) {
+        events.push({ type: 'session', sessionId: payload.session_id })
+      }
+
+      for (const choice of payload.choices || []) {
+        if (choice.finish_reason) {
+          events.push({ type: 'done', finishReason: choice.finish_reason, chunk: payload })
+          continue
+        }
+        const delta = choice.delta || {}
+        const text = typeof delta.content === 'string' ? delta.content : undefined
+        const parts = Array.isArray(delta.content) ? delta.content : undefined
+        if (text || parts?.length) {
+          events.push({ type: 'delta', text, parts, chunk: payload })
+        }
       }
     }
-  }
-
-  private async request<T>(path: string, init?: { method?: string, body?: unknown }): Promise<T> {
-    const settings = await this.resolveSettings()
-    this.ensureConfigured(settings)
-
-    if (isTauriRuntime()) {
-      const { invoke } = await import('@tauri-apps/api/core')
-      return await invoke<T>('api_request', {
-        request: {
-          serverUrl: settings.serverUrl,
-          token: settings.token,
-          path,
-          method: init?.method || 'GET',
-          body: init?.body ?? null,
-        },
-      })
-    }
-
-    const response = await fetch(withBasePath(settings.serverUrl, path), {
-      method: init?.method || 'GET',
-      headers: {
-        Authorization: `Bearer ${settings.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: init?.body !== undefined && init?.body !== null ? JSON.stringify(init.body) : undefined,
-    })
-
-    return this.parseResponse<T>(response)
-  }
-
-  private async parseResponse<T>(response: Response): Promise<T> {
-    if (response.ok) {
-      return await response.json() as T
-    }
-    throw await this.toApiError(response)
-  }
-
-  private async toApiError(response: Response): Promise<DuxAiApiError> {
-    let payload: any = null
-    try {
-      payload = await response.json()
-    }
-    catch {
-      payload = null
-    }
-    const message = payload?.error?.message || payload?.message || `请求失败 (${response.status})`
-    return new DuxAiApiError(message, response.status, payload)
+    return events
   }
 
   private async resolveSettings(): Promise<AppSettings> {
     const settings = await this.options.getSettings()
     return {
-      serverUrl: normalizeServerUrl(settings.serverUrl),
-      token: String(settings.token || '').trim(),
+      serverUrl: normalizeServerUrl(settings.serverUrl || ''),
+      token: settings.token || '',
     }
   }
 
-  private ensureConfigured(settings: AppSettings): void {
-    if (!settings.serverUrl) {
-      throw new DuxAiApiError('请先配置服务器地址')
+  private ensureConfigured(settings: AppSettings) {
+    if (!settings.serverUrl || !settings.token) {
+      throw new DuxAiApiError('请先完成服务器地址和 Token 配置')
     }
-    if (!settings.token) {
-      throw new DuxAiApiError('请先配置访问 Token')
+  }
+
+  private async request<T = any>(path: string, options: { method?: string, body?: any, query?: Record<string, any> } = {}): Promise<T> {
+    const settings = await this.resolveSettings()
+    this.ensureConfigured(settings)
+
+    const url = new URL(withBasePath(settings.serverUrl, path))
+    if (options.query) {
+      for (const [key, value] of Object.entries(options.query)) {
+        if (value === null || value === undefined || value === '') {
+          continue
+        }
+        url.searchParams.set(key, String(value))
+      }
     }
+
+    const response = await fetch(url.toString(), {
+      method: options.method || 'GET',
+      headers: {
+        Authorization: `Bearer ${settings.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    })
+
+    return this.parseResponse<T>(response)
+  }
+
+  private async parseResponse<T = any>(response: Response): Promise<T> {
+    const text = await response.text()
+    let payload: any = null
+    try {
+      payload = text ? JSON.parse(text) : null
+    }
+    catch {
+      payload = null
+    }
+
+    if (!response.ok) {
+      throw new DuxAiApiError(payload?.error?.message || payload?.message || text || '请求失败', response.status, payload)
+    }
+
+    return payload as T
   }
 }
 
-export function buildUserMessage(text: string, uploads: FileUploadItem[] = []): ChatRequestMessage {
-  const parts: ChatContentPart[] = []
-  const value = text.trim()
+function normalizeMessage(item: ChatMessage): ChatMessage {
+  const content = normalizeContent(item.content)
+  return {
+    ...item,
+    content,
+  }
+}
 
-  if (value) {
-    parts.push({
-      type: 'text',
-      text: value,
+function normalizeContent(content: ChatMessage['content']): ChatMessage['content'] {
+  if (Array.isArray(content)) {
+    return content.map((part) => {
+      if (!part || typeof part !== 'object') {
+        return { type: 'text', text: String(part || '') } as ChatContentPart
+      }
+      return part as ChatContentPart
     })
   }
+  return typeof content === 'string' ? content : String(content || '')
+}
 
-  for (const item of uploads) {
-    const mime = item.mime_type || ''
-    const name = item.filename || '附件'
+export function titleFromInput(input: ChatDraftInput) {
+  const text = input.text.trim()
+  if (text) {
+    return text.slice(0, 20)
+  }
+  if (input.attachments?.length) {
+    return input.attachments[0].name.slice(0, 20)
+  }
+  return '新会话'
+}
 
-    if ((item.media_kind === 'image' || mime.startsWith('image/')) && item.url) {
+export function buildUserMessage(text: string, attachments: FileUploadItem[]): ChatRequestMessage {
+  const trimmed = text.trim()
+  if (!attachments.length) {
+    return {
+      role: 'user',
+      content: trimmed,
+    }
+  }
+
+  const parts: ChatContentPart[] = []
+  if (trimmed) {
+    parts.push({ type: 'text', text: trimmed })
+  }
+
+  for (const attachment of attachments) {
+    const mediaKind = attachment.media_kind || inferMediaKind(attachment)
+    if (mediaKind === 'image') {
       parts.push({
         type: 'image_url',
         image_url: {
-          url: item.url,
-          name,
-          mime_type: mime,
+          url: attachment.url,
+          name: attachment.filename,
+          mime_type: attachment.mime_type,
         },
       })
       continue
     }
-
-    if ((item.media_kind === 'video' || mime.startsWith('video/')) && item.url) {
+    if (mediaKind === 'video') {
       parts.push({
         type: 'video_url',
         video_url: {
-          url: item.url,
-          name,
-          mime_type: mime,
+          url: attachment.url,
+          name: attachment.filename,
+          mime_type: attachment.mime_type,
         },
       })
       continue
     }
-
     parts.push({
       type: 'file_url',
       file_url: {
-        url: item.url,
-        name,
-        mime_type: mime,
-        provider_file_id: item.provider_file_id,
+        url: attachment.url,
+        name: attachment.filename,
+        mime_type: attachment.mime_type,
+        provider_file_id: attachment.provider_file_id,
       },
     })
   }
 
   return {
     role: 'user',
-    content: parts.length === 1 && parts[0].type === 'text' ? value : parts,
+    content: parts,
   }
 }
 
-export function normalizeMessage(message: ChatMessage): ChatMessage {
-  return {
-    ...message,
-    content: normalizeMessageContent(message.content),
-  }
-}
-
-function normalizeMessageContent(content: ChatMessage['content']): ChatMessage['content'] {
-  if (Array.isArray(content)) {
-    return content
-  }
-  return typeof content === 'string' ? content : ''
-}
-
-export function decomposeContent(content: ChatMessage['content']): { text: string, attachments: Array<Record<string, unknown>> } {
+export function decomposeContent(content: ChatMessage['content']) {
   if (typeof content === 'string') {
-    return {
-      text: content,
-      attachments: [],
-    }
+    return { text: content, attachments: [] as any[] }
   }
 
-  let text = ''
-  const attachments: Array<Record<string, unknown>> = []
-
-  for (const part of content) {
-    if (!part || typeof part !== 'object') {
-      continue
-    }
-
+  const textParts: string[] = []
+  const attachments: any[] = []
+  for (const part of content || []) {
     if (part.type === 'text') {
-      text = `${text}${part.text || ''}`.trim()
+      textParts.push(part.text || '')
       continue
     }
-
     if (part.type === 'image_url') {
-      attachments.push({
-        kind: 'image',
-        url: part.image_url?.url,
-        filename: part.image_url?.name || '图片',
-        mime_type: part.image_url?.mime_type,
-      })
+      attachments.push({ kind: 'image', url: part.image_url.url, name: part.image_url.name || '图片', mimeType: part.image_url.mime_type || '' })
       continue
     }
-
     if (part.type === 'video_url') {
-      attachments.push({
-        kind: 'video',
-        url: part.video_url?.url,
-        filename: part.video_url?.name || '视频',
-        mime_type: part.video_url?.mime_type,
-      })
+      attachments.push({ kind: 'video', url: part.video_url.url, name: part.video_url.name || '视频', mimeType: part.video_url.mime_type || '' })
       continue
     }
-
     if (part.type === 'file_url') {
-      attachments.push({
-        kind: 'file',
-        url: part.file_url?.url,
-        filename: part.file_url?.name || '附件',
-        mime_type: part.file_url?.mime_type,
-      })
+      attachments.push({ kind: 'file', url: part.file_url.url, name: part.file_url.name || '文件', mimeType: part.file_url.mime_type || '' })
       continue
     }
-
     if (part.type === 'card') {
-      attachments.push({
-        kind: 'card',
-        filename: '结构化卡片',
-        card: part.card,
-      })
+      attachments.push({ kind: 'card', card: part.card })
     }
   }
-
-  return { text, attachments }
+  return {
+    text: textParts.join('\n').trim(),
+    attachments,
+  }
 }
 
-export function titleFromInput(input: ChatDraftInput): string {
-  return input.text.trim().slice(0, 30) || '新会话'
+function inferMediaKind(file: FileUploadItem): string {
+  const mime = String(file.mime_type || '').toLowerCase()
+  if (mime.startsWith('image/')) {
+    return 'image'
+  }
+  if (mime.startsWith('video/')) {
+    return 'video'
+  }
+  return 'file'
 }

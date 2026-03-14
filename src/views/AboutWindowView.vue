@@ -71,6 +71,22 @@ onMounted(async () => {
         </div>
         <IconExternalLink class="h-4.5 w-4.5 text-[color:var(--app-text-muted)]" stroke="1.9" />
       </button>
+
+      <button
+        class="btn-muted no-drag flex w-full items-center justify-between rounded-2xl px-4 py-4 text-left"
+        @click="openExternalUrl('https://github.com/duxweb/dux-ai-node')"
+      >
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-[color:color-mix(in_srgb,var(--app-accent)_14%,transparent)] text-[color:var(--app-accent)]">
+            <IconBrandGithub class="h-5 w-5" stroke="1.9" />
+          </div>
+          <div>
+            <div class="text-app font-medium">节点仓库</div>
+            <div class="text-app-muted mt-1 text-xs">github.com/duxweb/dux-ai-node</div>
+          </div>
+        </div>
+        <IconExternalLink class="h-4.5 w-4.5 text-[color:var(--app-text-muted)]" stroke="1.9" />
+      </button>
     </div>
   </ChildWindowShell>
 </template>
